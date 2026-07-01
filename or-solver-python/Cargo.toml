@@ -1,0 +1,12 @@
+[package]
+name = "or-solver-python"
+version = "0.1.0"
+edition = "2024"
+
+[lib]
+name = "or_solver"
+crate-type = ["cdylib"]
+
+[dependencies]
+pyo3 = { version = "0.29.0", features = ["extension-module"] }
+or-solver-core = { path = "../or-solver-core" }

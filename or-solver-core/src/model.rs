@@ -1,0 +1,122 @@
+use nalgebra::{DMatrix, DVector};
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct VarId(pub usize);
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct ConId(pub usize);
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum VarType {
+    Continuos,
+    Integer,
+    Binary,
+}
+#[derive(Debug, Clone)]
+pub struct Variable {
+    pub name: String,
+    pub var_type: VarType,
+    pub lower_bound: f64,
+    pub higher_bound: f64,
+    pub obj_coeff: f64,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum ConSense {
+    LessEqual,    // <=
+    Equal,        // ==
+    GreaterEqual, // >=
+}
+
+#[derive(Debug, Clone)]
+pub struct Constraint {
+    pub name: String,
+    pub sense: ConSense,
+    pub rhs: f64, //Right-Hand Side
+    pub terms: Vec<(VarId, f64)>,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum ObjectiveSense {
+    Maximize,
+    Minimize,
+}
+
+#[derive(Debug, Clone)]
+pub struct Model {
+    pub name: String,
+    pub objective_sense: ObjectiveSense,
+    pub variables: Vec<Variable>,
+    pub constraints: Vec<Constraint>,
+}
+
+pub struct StandardForm {
+    pub a_matrix: DMatrix<f64>,
+    pub b_vector: DVector<f64>,
+    pub c_vector: DVector<f64>,
+}
+
+impl Model {
+    pub fn new(name: &str, sense: ObjectiveSense) -> Self {
+        Model{
+            name: name.to_string(),
+            objective_sense: sense,
+            variables: Vec::new(),
+            constraints: Vec::new()
+        }
+    }
+    
+    pub fn add_var(&mut self, name: &str, var_type: VarType, lower_bound: f64, higher_bound: f64, obj_coeff: f64) -> VarId {
+        let id = VarId(self.variables.len());
+        self.variables.push(Variable{
+            name: name.to_string(),
+            var_type,
+            lower_bound,
+            higher_bound,
+            obj_coeff,
+        });
+        id
+    }
+    pub fn add_constraint(&mut self, name: &str, terms: Vec<(VarId, f64)>, sense: ConSense, rhs: f64) -> ConId {
+        let id = ConId(self.constraints.len());
+        self.constraints.push( Constraint {
+            name: name.to_string(),
+            sense,
+            rhs,
+            terms,
+        });
+        id
+    }
+    
+    pub fn build_standard_form(&self) -> StandardForm {
+        let num_vars = self.variables.len();
+        let num_constraints = self.constraints.len();
+        
+        let total_cols = num_vars + num_constraints;
+        let mut a = DMatrix::zeros(num_constraints, total_cols);
+        let mut b = DVector::zeros(num_constraints);
+        let mut c = DVector::zeros(total_cols);
+        
+        for (i, var) in self.variables.iter().enumerate() {
+            c[i] = var.obj_coeff;
+        }
+        
+        for (row_idx, constraint) in self.constraints.iter().enumerate() {
+            b[row_idx] = constraint.rhs;
+            
+            for &(var_id, coeff) in &constraint.terms {
+                a[(row_idx, var_id.0)] = coeff;
+            }
+            let slack_col_idx = num_vars + row_idx;
+            match constraint.sense {
+                crate::model::ConSense::LessEqual => a[(row_idx ,slack_col_idx)] = 1.0,
+                crate::model::ConSense::Equal => {}
+                crate::model::ConSense::GreaterEqual => a[(row_idx ,slack_col_idx)] = -1.0,
+            }
+        }
+        StandardForm {
+            a_matrix: a,
+            b_vector: b,
+            c_vector: c,
+        }
+    }
+}

@@ -1,0 +1,7 @@
+[workspace]
+resolver = "2"
+members = [
+    "or-solver-core",
+    "or-solver-python",
+]
+
