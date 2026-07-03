@@ -1,4 +1,5 @@
-use or_solver_core::model::{Model, ObjectiveSense, VarType, ConSense};
+use or_solver_core::model::{Model, ObjectiveSense, VarType, ConSense, StandardForm};
+use or_solver_core::simplex::run_simplex;
 
 fn main() {
     let mut model = Model::new("Test", ObjectiveSense::Maximize);
@@ -21,4 +22,10 @@ fn main() {
         45.0
     );
     println!("{:#?}", model);
+    
+    let mut standard_form_model = StandardForm::from(&model);
+    let solution = run_simplex(&mut standard_form_model);
+    
+    println!("{:#?}", solution);
+    
 }

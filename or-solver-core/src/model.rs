@@ -55,6 +55,15 @@ pub struct StandardForm {
     pub c_vector: DVector<f64>,
 }
 
+impl StandardForm {
+    pub fn get_column(&self, idx: usize) -> DVector<f64> {
+        self.a_matrix.column(idx).into_owned()
+    }
+    pub fn get_submatrix(&self, indices: &[usize]) -> DMatrix<f64> {
+        self.a_matrix.select_columns(indices).into_owned()
+    }
+}
+
 impl Model {
     pub fn new(name: &str, sense: ObjectiveSense) -> Self {
         Model{
@@ -87,22 +96,25 @@ impl Model {
         id
     }
     
-    pub fn build_standard_form(&self) -> StandardForm {
-        let num_vars = self.variables.len();
-        let num_constraints = self.constraints.len();
-        
+}
+
+impl From<&Model> for StandardForm {
+    fn from(model: &Model) -> Self {
+        let num_vars = model.variables.len();
+        let num_constraints = model.constraints.len();
+
         let total_cols = num_vars + num_constraints;
         let mut a = DMatrix::zeros(num_constraints, total_cols);
         let mut b = DVector::zeros(num_constraints);
         let mut c = DVector::zeros(total_cols);
-        
-        for (i, var) in self.variables.iter().enumerate() {
+
+        for (i, var) in model.variables.iter().enumerate() {
             c[i] = var.obj_coeff;
         }
-        
-        for (row_idx, constraint) in self.constraints.iter().enumerate() {
+
+        for (row_idx, constraint) in model.constraints.iter().enumerate() {
             b[row_idx] = constraint.rhs;
-            
+
             for &(var_id, coeff) in &constraint.terms {
                 a[(row_idx, var_id.0)] = coeff;
             }
