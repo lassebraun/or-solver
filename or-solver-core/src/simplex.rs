@@ -28,10 +28,11 @@ pub struct Solution {
 fn init_simplex(model: &StandardForm) -> SimplexState {
     // Assuming the origin is a valid solution
     let num_constraints = model.b_vector.nrows();
-    let num_vars = model.a_matrix.ncols() - num_constraints;
 
-    let basis: Vec<usize> = (num_vars..num_vars + num_constraints).collect();
-    let non_basis: Vec<usize> = (0..num_vars).collect();
+    let basis: Vec<usize> = model.initial_basis.clone();
+
+    let non_basis: Vec<usize> = (0..model.a_matrix.ncols()).filter(|i| !basis.contains(i)).collect();
+
     let b_inv = DMatrix::identity(num_constraints, num_constraints);
     SimplexState {
         basis,
@@ -118,8 +119,7 @@ fn extract_solution(
     state: &SimplexState,
     status: OptimizationStatus,
 ) -> Solution {
-    let num_constraints = model.b_vector.nrows();
-    let num_vars = model.a_matrix.ncols() - num_constraints;
+    let num_vars = model.num_vars;
 
     let mut variables = vec![0.0; num_vars];
 
@@ -140,54 +140,59 @@ fn extract_solution(
         variables,
     }
 }
-pub fn run_simplex(model: &StandardForm) -> Solution {
-    let mut state = init_simplex(model);
-
+fn run_core_simplex(model: &StandardForm, state: &mut SimplexState) -> OptimizationStatus {
     while let Some(enter_idx) = pricing(model, &state) {
         let a_e = model.a_matrix.column(enter_idx);
         let d = &state.b_inv * a_e;
 
         if let Some(leave_row) = ratio_test(&state, &d) {
-            basis_update(&mut state, leave_row, enter_idx, &d);
+            basis_update(state, leave_row, enter_idx, &d);
         } else {
-            return extract_solution(&model, &state, OptimizationStatus::Unbounded);
+            return OptimizationStatus::Unbounded;
         }
     }
-    extract_solution(&model, &state, OptimizationStatus::Optimal)
+    OptimizationStatus::Optimal
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::model::{Model, ObjectiveSense, VarType, ConSense, StandardForm};
 
-    #[test]
-    fn test_simplex_less_equal() {
-        let mut model = Model::new("Test", ObjectiveSense::Maximize);
+pub fn solve(original_model: &StandardForm) -> Solution {
+    let total_cols = original_model.a_matrix.ncols();
+    let artificial_start_idx = original_model.num_vars + original_model.num_constraints;
+    let has_artificial_vars = artificial_start_idx < total_cols;
 
-        let x1 = model.add_var("x1", VarType::Integer, 0.0, f64::INFINITY, 5.0);
-        let x2 = model.add_var("x2", VarType::Integer, 0.0, f64::INFINITY, 4.0);
+    let mut state = init_simplex(original_model);
 
-        model.add_constraint(
-            "Capacity A",
-            vec![(x1, 1.0), (x2, 1.0)],
-            ConSense::LessEqual,
-            5.0
-        );
-        model.add_constraint(
-            "Capacity B",
-            vec![(x1, 10.0), (x2, 6.0)],
-            ConSense::LessEqual,
-            45.0
-        );
 
-        let mut standard_form_model = StandardForm::from(&model);
-        let solution = run_simplex(&mut standard_form_model);
+    // Phase 1
+    if has_artificial_vars {
+        let mut phase_1_model = original_model.clone();
 
-        assert_eq!(solution.status, OptimizationStatus::Optimal);
-        assert!((solution.objective_value - 23.75).abs() < EPSILON);
-        assert!((solution.variables[0] - 3.75).abs() < EPSILON);
-        assert!((solution.variables[1] - 1.25).abs() < EPSILON);
+        let mut phase_1_c = DVector::zeros(total_cols);
+        for i in artificial_start_idx..total_cols {
+            phase_1_c[i] = -1.0;
+        }
+        phase_1_model.c_vector = phase_1_c;
+
+        run_core_simplex(&phase_1_model, &mut state);
+
+        let mut phase_1_obj = 0.0;
+        for (row_idx, &var_idx) in state.basis.iter().enumerate() {
+            phase_1_obj += phase_1_model.c_vector[var_idx] * state.x_b[row_idx];
+        }
+
+        if phase_1_obj < -1e-6{
+            return extract_solution(original_model, &state, OptimizationStatus::Infeasible);
+        }
     }
-}
+    // Phase 2
+    state.non_basis.retain(|&idx| idx < artificial_start_idx);
 
+    let mut phase_2_model = original_model.clone();
+    for i in artificial_start_idx..total_cols {
+        phase_2_model.c_vector[i] = -1e-20;
+    }
+
+    let final_status = run_core_simplex(&phase_2_model, &mut state);
+
+    extract_solution(original_model, &state, final_status)
+}

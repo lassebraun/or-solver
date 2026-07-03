@@ -49,10 +49,14 @@ pub struct Model {
     pub constraints: Vec<Constraint>,
 }
 
+#[derive(Debug, Clone)]
 pub struct StandardForm {
     pub a_matrix: DMatrix<f64>,
     pub b_vector: DVector<f64>,
     pub c_vector: DVector<f64>,
+    pub initial_basis: Vec<usize>,
+    pub num_vars: usize,
+    pub num_constraints: usize,
 }
 
 impl StandardForm {
@@ -95,7 +99,7 @@ impl Model {
         });
         id
     }
-    
+
 }
 
 impl From<&Model> for StandardForm {
@@ -103,14 +107,24 @@ impl From<&Model> for StandardForm {
         let num_vars = model.variables.len();
         let num_constraints = model.constraints.len();
 
-        let total_cols = num_vars + num_constraints;
+        // Count artificial variables needed for constraints other than <=
+        let num_artificial = model.constraints.iter().filter( |c| {
+            matches!(c.sense, ConSense::Equal | ConSense::GreaterEqual)
+        }).count();
+
+
+        let total_cols = num_vars + num_constraints + num_artificial;
         let mut a = DMatrix::zeros(num_constraints, total_cols);
         let mut b = DVector::zeros(num_constraints);
         let mut c = DVector::zeros(total_cols);
 
+        let mut initial_basis = vec![0; num_constraints];
+
         for (i, var) in model.variables.iter().enumerate() {
             c[i] = var.obj_coeff;
         }
+
+        let mut current_artificial_col = num_vars + num_constraints;
 
         for (row_idx, constraint) in model.constraints.iter().enumerate() {
             b[row_idx] = constraint.rhs;
@@ -120,15 +134,33 @@ impl From<&Model> for StandardForm {
             }
             let slack_col_idx = num_vars + row_idx;
             match constraint.sense {
-                crate::model::ConSense::LessEqual => a[(row_idx ,slack_col_idx)] = 1.0,
-                crate::model::ConSense::Equal => {}
-                crate::model::ConSense::GreaterEqual => a[(row_idx ,slack_col_idx)] = -1.0,
+                ConSense::LessEqual => {
+                    a[(row_idx, slack_col_idx)] = 1.0;
+                    initial_basis[row_idx] = slack_col_idx;
+                },
+                ConSense::Equal => {
+                    a[(row_idx, slack_col_idx)] = 1.0;
+
+                    initial_basis[row_idx] = current_artificial_col;
+                    current_artificial_col += 1;
+                },
+                ConSense::GreaterEqual => {
+                    a[(row_idx ,slack_col_idx)] = -1.0;
+                    
+                    a[(row_idx, current_artificial_col)] = 1.0;
+                    
+                    initial_basis[row_idx] = current_artificial_col;
+                    current_artificial_col += 1;
+                },
             }
         }
         StandardForm {
             a_matrix: a,
             b_vector: b,
             c_vector: c,
+            initial_basis,
+            num_vars,
+            num_constraints,
         }
     }
 }
