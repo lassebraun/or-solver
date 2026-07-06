@@ -1,3 +1,4 @@
+use or_solver_core::branch_bound::solve_milp;
 use or_solver_core::model::{Model, ObjectiveSense, VarType, ConSense, StandardForm};
 use or_solver_core::simplex::solve;
 
@@ -33,6 +34,34 @@ fn main() {
     let mut standard_form_model = StandardForm::from(&model);
     let solution = solve(&mut standard_form_model, );
     
+    println!("{:#?}", solution);
+
+    // Feasible MILP Model.
+    // Maximize 5*x1 + 4*x2
+    // s.t.
+    // x1 + x2 <= 5
+    // 10*x1 + 6*x2 <= 45
+    // x1, x2 >= 0, integer.
+    // Optimal integer solution should be (3, 2) with objective value 23.0.
+    let mut model = Model::new("MILP Test", ObjectiveSense::Maximize);
+
+    let x1 = model.add_var("x1", VarType::Integer, 0.0, f64::INFINITY, 5.0);
+    let x2 = model.add_var("x2", VarType::Integer, 0.0, f64::INFINITY, 4.0);
+
+    model.add_constraint(
+        "Capacity A",
+        vec![(x1, 1.0), (x2, 1.0)],
+        ConSense::LessEqual,
+        5.0,
+    );
+    model.add_constraint(
+        "Capacity B",
+        vec![(x1, 10.0), (x2, 6.0)],
+        ConSense::LessEqual,
+        45.0,
+    );
+
+    let solution = solve_milp(&model);
     println!("{:#?}", solution);
     
 }
